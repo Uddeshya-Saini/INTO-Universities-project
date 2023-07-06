@@ -1,0 +1,104 @@
+-- QUERY 1
+-- Creating 3 temporary tables each for 2019, 2018 and 2017 and extracting the relevant data
+-- The queries are very similar for the 3 years
+
+WITH data_2019 AS 
+(SELECT 
+ DISTINCT(dd_2019.UNITID), -- Removing any duplicates
+ dd_2019.INSTNM AS Name,
+ dd_2019.STABBR AS State,
+ dd_2019.CITY AS City,
+ dd_2019.WEBADDR AS url,
+ SAFE_CAST(UGDS AS INT64) AS Total_students_2019,
+ SAFE_CAST(REPLACE(TUITIONFEE_OUT, ",", "") AS INT64) AS Tuition_fees_2019,
+ SAFE_CAST(REPLACE(BOOKSUPPLY, ",", "") AS INT64) AS Books_cost,
+ SAFE_CAST(REPLACE(ROOMBOARD_ON, ",", "") AS INT64) AS Accom_cost,
+ SAFE_CAST(REPLACE(OTHEREXPENSE_ON, ",", "") AS INT64) AS Other_costs,
+ SAFE_CAST(REPLACE(Total, ",", "") AS INT64) AS Total_students_uptake_2019,
+ SAFE_CAST(REPLACE(Foreign_countries___Number, ",", "") AS INT64) AS overseas_students_uptake_2019,
+ LONGITUD,
+ LATITUDE
+ FROM `prism-2023-c1.INTO_Live_Brief.Data_Dictionary_2019` AS dd_2019
+ JOIN `prism-2023-c1.INTO_Live_Brief.Fall_Enrollments_2019` AS fe_2019
+ ON dd_2019.UNITID = fe_2019.Unit_Id
+ JOIN `prism-2023-c1.prism_web_analytics.us_college_scorecard_2019_2020` AS cs_19_20
+ ON dd_2019.UNITID = cs_19_20.UNITID
+ WHERE dd_2019.STABBR NOT IN ('CO', 'NJ', 'VA', 'NY', 'IL', 'OR', 'MO', 'MA', 'AL', 'AZ', 'WV', 'NH', 'PA', 'WA') -- Excluding the states INTO already has partnerships in
+ AND CYACTIVE = 1
+ AND INSTCAT = 2
+ --OR INSTCAT = 3
+ AND ACT LIKE '%A%'
+ AND SAFE_CAST(Foreign_countries___Number AS INT64) IS NOT NULL
+ AND SAFE_CAST(UGDS AS INT64) > 3000
+),
+
+data_2018 AS 
+(SELECT
+ DISTINCT(dd_2018.UNITID),
+ dd_2018.INSTNM,
+ dd_2018.STABBR,
+ dd_2018.LOCALE,
+ SAFE_CAST(UGDS AS INT64) AS Total_students_2018,
+ SAFE_CAST(REPLACE(Total, ",", "") AS INT64) AS Total_students_uptake_2018,
+ SAFE_CAST(REPLACE(Foreign_countries___Number, ",", "") AS INT64) AS overseas_students_uptake_2018
+ FROM `prism-2023-c1.INTO_Live_Brief.Data_Dictionary_2019` AS dd_2018
+ JOIN `prism-2023-c1.INTO_Live_Brief.Fall_Enrollments_2019` AS fe_2018
+ ON dd_2018.UNITID = fe_2018.Unit_Id
+ JOIN `prism-2023-c1.prism_web_analytics.us_college_scorecard_2018_2019` AS cs_18_19
+ ON dd_2018.UNITID = cs_18_19.UNITID
+ WHERE dd_2018.STABBR NOT IN ('CO', 'NJ', 'VA', 'NY', 'IL', 'OR', 'MO', 'MA', 'AL', 'AZ', 'WV', 'NH', 'PA', 'WA')
+ AND CYACTIVE = 1
+ AND INSTCAT = 2
+ --OR INSTCAT = 3
+ AND ACT LIKE '%A%'
+ AND SAFE_CAST(Foreign_countries___Number AS INT64) IS NOT NULL
+),
+
+data_2017 AS 
+(SELECT
+ DISTINCT(dd_2017.UNITID),
+ dd_2017.INSTNM,
+ dd_2017.STABBR,
+ dd_2017.LOCALE,
+ SAFE_CAST(UGDS AS INT64) AS Total_students_2017,
+ SAFE_CAST(REPLACE(Total, ",", "") AS INT64) AS Total_students_uptake_2017,
+ SAFE_CAST(REPLACE(Foreign_countries___Number, ",", "") AS INT64) AS overseas_students_uptake_2017
+ FROM `prism-2023-c1.INTO_Live_Brief.Data_Dictionary_2017` AS dd_2017
+ JOIN `prism-2023-c1.INTO_Live_Brief.Fall_Enrollments_2017` AS fe_2017
+ ON dd_2017.UNITID = fe_2017.Unit_Id
+ JOIN `prism-2023-c1.prism_web_analytics.us_college_scorecard_2017_2018` AS cs_17_18
+ ON dd_2017.UNITID = cs_17_18.UNITID
+ WHERE dd_2017.STABBR NOT IN ('CO', 'NJ', 'VA', 'NY', 'IL', 'OR', 'MO', 'MA', 'AL', 'AZ', 'WV', 'NH', 'PA', 'WA')
+ AND CYACTIVE = 1
+ AND INSTCAT = 2
+ --OR INSTCAT = 3
+ AND ACT LIKE '%A%'
+ AND SAFE_CAST(Foreign_countries___Number AS INT64) IS NOT NULL
+)
+
+-- Joining the 3 temporary tables together to give the final table
+-- Some calculations are also carried out such as percentage of overseas enrolment in each year and NTILE to create buckets for Size of university, overseas enrolment and cost to overseas students
+SELECT 
+ data_2019.*,
+ (data_2019.overseas_students_uptake_2019 * 100 / data_2019.Total_students_uptake_2019) AS percentage_uptake_2019,
+ (COALESCE(data_2019.Tuition_fees_2019,0) + COALESCE(data_2019.Books_cost,0) + COALESCE(data_2019.Other_costs,0) + COALESCE(data_2019.Accom_cost,0)) AS Total_cost,
+ data_2018.Total_students_uptake_2018,
+ data_2018.overseas_students_uptake_2018,
+ (data_2018.overseas_students_uptake_2018 * 100 / data_2018.Total_students_uptake_2018) AS percentage_uptake_2018,
+ data_2017.Total_students_uptake_2017,
+ data_2017.overseas_students_uptake_2017,
+ (data_2017.overseas_students_uptake_2017 * 100 / data_2017.Total_students_uptake_2017) AS percentage_uptake_2017,
+ NTILE(5) OVER (ORDER BY data_2019.Total_students_2019 DESC) AS Size_ranking,
+ NTILE(5) OVER (ORDER BY (COALESCE(data_2019.Tuition_fees_2019,0) + COALESCE(data_2019.Books_cost,0) + COALESCE(data_2019.Other_costs,0) + 
+   COALESCE(data_2019.Accom_cost,0)) DESC) AS Cost_ranking,
+ NTILE(5) OVER (ORDER BY (data_2019.overseas_students_uptake_2019 * 100 / data_2019.Total_students_uptake_2019) DESC) AS uptake_ranking,
+ CASE -- This case statement is used to find out if there has been a reduction in overseas enrolment from 2017 to 2019
+   WHEN (data_2019.overseas_students_uptake_2019 * 100 / data_2019.Total_students_uptake_2019) <=
+   (data_2017.overseas_students_uptake_2017 * 100 / data_2017.Total_students_uptake_2017) THEN 'True'
+   ELSE 'False'
+   END AS decrease_in_uptake
+FROM data_2019
+JOIN data_2018
+ON data_2019.UNITID = data_2018.UNITID -- The joins happen on the ID number associated with each university
+JOIN data_2017
+ON data_2019.UNITID = data_2017.UNITID;
